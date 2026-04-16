@@ -2,121 +2,108 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.decomposition import PCA
 
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
+from model import process_data
 
-# Page config
-st.set_page_config(page_title="Advanced User Clustering", layout="wide")
+st.set_page_config(page_title="User Clustering Dashboard", layout="wide")
 
-# Title
-st.title("Advanced Social Media User Clustering Dashboard")
-st.markdown("Upload your dataset and perform **advanced clustering analysis** with insights.")
+st.title("📊 Social Media User Clustering Dashboard")
 
-# File upload
-uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
+# -----------------------------
+# File Upload
+# -----------------------------
+uploaded_file = st.file_uploader("Upload your dataset (CSV)", type=["csv"])
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+if uploaded_file is not None:
+    data = pd.read_csv(uploaded_file)
 
-    st.subheader("Dataset Preview")
-    st.dataframe(df.head())
+    st.subheader("📄 Raw Data")
+    st.dataframe(data.head())
 
-    # Select numeric columns
-    numeric_df = df.select_dtypes(include=['int64', 'float64'])
+    # -----------------------------
+    # Process Data
+    # -----------------------------
+    data = process_data(data)
 
-    if numeric_df.shape[1] < 2:
-        st.error("Need at least 2 numeric columns")
-    else:
-        st.success("Numeric data detected")
+    st.subheader("✅ Clustered Data")
+    st.dataframe(data.head())
 
-        # Feature selection
-        selected_features = st.multiselect(
-            "Select features for clustering",
-            numeric_df.columns,
-            default=numeric_df.columns[:2]
-        )
+    # -----------------------------
+    # Cluster Summary
+    # -----------------------------
+    st.subheader("📊 Cluster Summary")
 
-        if len(selected_features) < 2:
-            st.warning("Select at least 2 features")
-        else:
-            data = numeric_df[selected_features]
+    cluster_summary = data.groupby('Cluster')[[
+        'Daily_Minutes_Spent',
+        'Posts_Per_Day',
+        'Likes_Per_Day',
+        'Follows_Per_Day',
+        'Engagement',
+        'Activity_Score'
+    ]].mean()
 
-            # Handle missing values
-            data = data.fillna(data.mean())
+    st.dataframe(cluster_summary)
 
-            # Scaling
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(data)
+    # -----------------------------
+    # Cluster Distribution
+    # -----------------------------
+    st.subheader("👥 Users per Cluster")
 
-            # ---------------- ELBOW METHOD ----------------
-            st.subheader("Elbow Method (Find Optimal K)")
+    fig1, ax1 = plt.subplots()
+    data['Cluster'].value_counts().plot(kind='bar', ax=ax1)
+    st.pyplot(fig1)
 
-            inertia = []
-            K_range = range(1, 11)
+    # -----------------------------
+    # User Type Distribution
+    # -----------------------------
+    st.subheader("🧠 User Types")
 
-            for i in K_range:
-                km = KMeans(n_clusters=i, random_state=42)
-                km.fit(X_scaled)
-                inertia.append(km.inertia_)
+    fig2, ax2 = plt.subplots()
+    data['User_Type'].value_counts().plot(kind='pie', autopct='%1.1f%%', ax=ax2)
+    st.pyplot(fig2)
 
-            fig_elbow, ax_elbow = plt.subplots()
-            ax_elbow.plot(K_range, inertia, marker='o')
-            ax_elbow.set_xlabel("Number of Clusters (K)")
-            ax_elbow.set_ylabel("Inertia")
-            ax_elbow.set_title("Elbow Curve")
-            st.pyplot(fig_elbow)
+    # -----------------------------
+    # PCA Visualization
+    # -----------------------------
+    st.subheader("📍 Cluster Visualization (PCA)")
 
-            # ---------------- CLUSTER SELECTION ----------------
-            k = st.slider("Select number of clusters", 2, 10, 3)
+    features = [
+        'Daily_Minutes_Spent',
+        'Posts_Per_Day',
+        'Likes_Per_Day',
+        'Follows_Per_Day',
+        'Engagement',
+        'Activity_Score'
+    ]
 
-            if st.button("Run Clustering"):
-                kmeans = KMeans(n_clusters=k, random_state=42)
-                clusters = kmeans.fit_predict(X_scaled)
+    pca = PCA(n_components=2)
+    pca_data = pca.fit_transform(data[features])
 
-                df['Cluster'] = clusters
+    data['PCA1'] = pca_data[:, 0]
+    data['PCA2'] = pca_data[:, 1]
 
-                st.subheader("📌 Clustered Data")
-                st.dataframe(df.head())
+    fig3, ax3 = plt.subplots()
+    sns.scatterplot(x='PCA1', y='PCA2', hue='Cluster', data=data, ax=ax3)
+    st.pyplot(fig3)
 
-                # Cluster summary
-                st.subheader("Cluster Summary")
-                st.dataframe(df.groupby('Cluster')[selected_features].mean())
+    # -----------------------------
+    # Top Users
+    # -----------------------------
+    st.subheader("🔥 Top 10 High Engagement Users")
 
-                # ---------------- VISUALIZATION ----------------
-                st.subheader("Cluster Visualization")
+    top_users = data.sort_values(by='Engagement', ascending=False).head(10)
+    st.dataframe(top_users[['User_ID', 'Engagement', 'Cluster', 'User_Type']])
 
-                col1, col2 = st.columns(2)
+    # -----------------------------
+    # Download Result
+    # -----------------------------
+    st.download_button(
+        label="📥 Download Clustered Data",
+        data=data.to_csv(index=False),
+        file_name="clustered_users.csv",
+        mime="text/csv"
+    )
 
-                # Scatter plot
-                with col1:
-                    fig1, ax1 = plt.subplots()
-                    scatter = ax1.scatter(
-                        X_scaled[:, 0],
-                        X_scaled[:, 1],
-                        c=clusters,
-                        cmap='viridis'
-                    )
-                    ax1.set_xlabel(selected_features[0])
-                    ax1.set_ylabel(selected_features[1])
-                    ax1.set_title("Cluster Scatter Plot")
-                    st.pyplot(fig1)
-
-                # Seaborn pairplot (advanced)
-                with col2:
-                    pairplot_df = df[selected_features + ['Cluster']]
-                    fig2 = sns.pairplot(pairplot_df, hue='Cluster')
-                    st.pyplot(fig2)
-
-                # ---------------- DOWNLOAD ----------------
-                st.subheader("⬇ Download Results")
-                csv = df.to_csv(index=False).encode('utf-8')
-
-                st.download_button(
-                    label="Download Clustered Data",
-                    data=csv,
-                    file_name="clustered_data.csv",
-                    mime="text/csv"
-                )
-
-                st.success("Clustering Completed Successfully!")
+else:
+    st.info("Please upload a CSV file to start analysis.")
